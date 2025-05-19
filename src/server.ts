@@ -1,7 +1,17 @@
 import app from './app';
 import { connectDB } from './config/db';
+import dotenv from "dotenv";
 
-const PORT = 5000;
+// Load environment variables
+dotenv.config();
 
+// Use default port if not defined
+const PORT = process.env.PORT || 5000;
+
+// Connect to database
 connectDB();
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
