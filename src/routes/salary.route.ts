@@ -38,82 +38,6 @@ router.post("/submit-salary", async (req: Request, res: Response) => {
   }
 });
 
-// GET: Search salaries with optional filters and pagination
-// router.get("/search-salaries", async (req: Request<{}, {}, {}, SalarySearchQuery>, res: Response) => {
-//   try {
-//     const {
-//       speciality,
-//       subspeciality,
-//       state,
-//       practice,
-//       page = "1",
-//       limit = "50",
-//     } = req.query;
-
-//     const query: Record<string, any> = {};
-
-//     if (speciality) query.speciality = speciality;
-//     if (subspeciality) query.subspeciality = subspeciality;
-//     if (state) query.state = state;
-//     if (practice) query.practice = practice;
-
-//     const pageNumber = parseInt(page, 10);
-//     const limitNumber = parseInt(limit, 10);
-//     const skip = (pageNumber - 1) * limitNumber;
-
-//     const [salaries, total] = await Promise.all([
-//       Salary.find(query).skip(skip).limit(limitNumber),
-//       Salary.countDocuments(query),
-//     ]);
-
-//     res.status(200).json({
-//       total,
-//       page: pageNumber,
-//       limit: limitNumber,
-//       totalPages: Math.ceil(total / limitNumber),
-//       data: salaries,
-//     });
-//   } catch (err) {
-//     console.error("Error fetching salary records:", err);
-//     res.status(500).json({ error: "Failed to retrieve salary records" });
-//   }
-// });
-
-// router.get("/summary", async (req:any, res:any) => {
-//   try {
-//     const { practiceSetting } = req.query;
-
-//     const match: any = {};
-//     if (practiceSetting) {
-//       match.practiceSetting = practiceSetting;
-//     }
-
-//     const result = await Salary.aggregate([
-//       { $match: match },
-//       {
-//         $group: {
-//           _id: null,
-//           totalCompensation: {
-//             $sum: { $add: ["$base_salary", { $ifNull: ["$bonus", 0] }] }
-//           },
-//           submissionCount: { $sum: 1 }
-//         }
-//       }
-//     ]);
-
-//     if (result.length === 0) {
-//       return res.json({ totalCompensation: 0, submissionCount: 0 });
-//     }
-
-//     const { totalCompensation, submissionCount } = result[0];
-//     res.json({ totalCompensation, submissionCount });
-
-//   } catch (err) {
-//     console.error("Error in summary endpoint:", err);
-//     res.status(500).json({ error: "Internal server error" });
-//   }
-// });
-
 router.get(
   "/search-salaries",
   async (req: Request<{}, {}, {}, SalarySearchQuery>, res: Response) => {
@@ -298,8 +222,8 @@ router.get(
         maxSalary,
         satisfaction,
       } = req.query;
-      console.log(minSalary, typeof minSalary, maxSalary, typeof maxSalary);
-      
+      // console.log(minSalary, typeof minSalary, maxSalary, typeof maxSalary);
+
       const query: Record<string, any> = {};
 
       // Filters
@@ -360,5 +284,91 @@ router.get(
     }
   }
 );
+
+router.get("/specialty-stats", async (req: Request, res: Response) => {
+  try {
+    const { specialty, practiceSetting } = req.query;
+
+    const match: Record<string, any> = {
+      satisfactionLevel: { $in: ["1", "2", "3", "4", "5"] },
+    };
+
+    if (specialty) match.specialty = specialty;
+    if (practiceSetting) match.practiceSetting = practiceSetting;
+
+    const result = await Salary.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: "$specialty",
+          avgBaseSalary: { $avg: "$base_salary" },
+          allSalaries: { $push: "$base_salary" },
+          avgHoursWorked: { $avg: "$hoursWorked" },
+          avgSatisfaction: {
+            $avg: { $toDouble: "$satisfactionLevel" },
+          },
+          submissionCount: { $sum: 1 },
+        },
+      },
+      {
+        $project: {
+          specialty: "$_id",
+          averageBaseSalary: { $round: ["$avgBaseSalary", 0] },
+          medianBaseSalary: {
+            $let: {
+              vars: {
+                sortedSalaries: {
+                  $sortArray: {
+                    input: "$allSalaries",
+                    sortBy: { $asc: 1 },
+                  },
+                },
+                count: { $size: "$allSalaries" },
+              },
+              in: {
+                $cond: [
+                  { $eq: [{ $mod: ["$$count", 2] }, 0] },
+                  {
+                    $avg: [
+                      {
+                        $arrayElemAt: [
+                          "$$sortedSalaries",
+                          { $subtract: [{ $divide: ["$$count", 2] }, 1] },
+                        ],
+                      },
+                      {
+                        $arrayElemAt: [
+                          "$$sortedSalaries",
+                          { $divide: ["$$count", 2] },
+                        ],
+                      },
+                    ],
+                  },
+                  {
+                    $arrayElemAt: [
+                      "$$sortedSalaries",
+                      { $floor: { $divide: ["$$count", 2] } },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          averageHoursWorked: { $round: ["$avgHoursWorked", 1] },
+          averageSatisfactionLevel: { $round: ["$avgSatisfaction", 1] },
+          salarySubmissionCount: "$submissionCount",
+          _id: 0,
+        },
+      },
+
+      { $sort: { salarySubmissionCount: -1 } },
+    ]);
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("Error generating specialty stats:", error);
+    res.status(500).json({ error: "Failed to get specialty stats" });
+  }
+});
 
 export default router;
