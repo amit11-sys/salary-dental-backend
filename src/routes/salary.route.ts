@@ -371,4 +371,141 @@ router.get("/specialty-stats", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/stats-by-speciality", async (req: Request, res: Response) => {
+  try {
+    const { specialty } = req.query;
+    const match: any = {};
+    console.log(typeof specialty);
+
+    if (typeof specialty === "string") {
+      const specialtyRaw = specialty?.trim();
+      const formattedSpecialty = specialtyRaw?.replace(
+        /([a-z])([A-Z])/g,
+        "$1 $2"
+      );
+
+      match.specialty = formattedSpecialty;
+    }
+    console.log(match);
+
+    // if (practiceSetting) match.practiceSetting = practiceSetting;
+
+    const stats = await Salary.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: "$speciality",
+          avgSalary: { $avg: "$base_salary" },
+          medianList: { $push: "$base_salary" },
+          totalSubmissions: { $sum: 1 },
+          avgHoursWorked: { $avg: "$hoursWorked" },
+          satisfactionYesCount: {
+            $sum: { $cond: [{ $eq: ["$chooseSpecialty", "yes"] }, 1, 0] },
+          },
+          avgSatisfactionLevel: {
+            $avg: {
+              $cond: [
+                {
+                  $regexMatch: {
+                    input: "$satisfactionLevel",
+                    regex: /^[1-5]$/,
+                  },
+                },
+                { $toDouble: "$satisfactionLevel" },
+                null,
+              ],
+            },
+          },
+        },
+      },
+      {
+        $project: {
+          specialty: "$_id",
+          avgSalary: { $round: ["$avgSalary", 0] },
+          medianSalary: {
+            $let: {
+              vars: {
+                sorted: {
+                  $sortArray: {
+                    input: "$medianList",
+                    sortBy: { $asc: 1 }, // or use: { $descending: -1 }
+                  },
+                },
+                count: { $size: "$medianList" },
+              },
+              in: {
+                $cond: [
+                  { $eq: [{ $mod: ["$$count", 2] }, 0] },
+                  {
+                    $avg: [
+                      {
+                        $arrayElemAt: [
+                          "$$sorted",
+                          { $subtract: [{ $divide: ["$$count", 2] }, 1] },
+                        ],
+                      },
+                      {
+                        $arrayElemAt: ["$$sorted", { $divide: ["$$count", 2] }],
+                      },
+                    ],
+                  },
+                  {
+                    $arrayElemAt: [
+                      "$$sorted",
+                      { $floor: { $divide: ["$$count", 2] } },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          avgWorkWeek: { $round: ["$avgHoursWorked", 1] },
+          satisfactionPercentage: {
+            $cond: [
+              { $eq: ["$totalSubmissions", 0] },
+              0,
+              {
+                $round: [
+                  {
+                    $multiply: [
+                      {
+                        $divide: ["$satisfactionYesCount", "$totalSubmissions"],
+                      },
+                      100,
+                    ],
+                  },
+                  0,
+                ],
+              },
+            ],
+          },
+          avgSatisfactionRating: { $round: ["$avgSatisfactionLevel", 1] },
+          totalSubmissions: 1,
+          medianMonthlySalary: {
+            $round: [{ $divide: ["$medianSalary", 12] }, 0],
+          },
+          medianHourlyWage: {
+            $round: [
+              {
+                $divide: [
+                  "$medianSalary",
+                  { $multiply: ["$avgHoursWorked", 52] },
+                ],
+              },
+              2,
+            ],
+          },
+          _id: 0,
+        },
+      },
+    ]);
+    console.log(stats, 'adssdaads');
+
+    res.status(200).json(stats);
+  } catch (err) {
+    console.error("Error in /specialty-stats:", err);
+    res.status(500).json({ error: "Failed to generate specialty statistics" });
+  }
+});
+
 export default router;
