@@ -375,7 +375,7 @@ router.get("/stats-by-speciality", async (req: Request, res: Response) => {
   try {
     const { specialty } = req.query;
     const match: any = {};
-    console.log(typeof specialty);
+    // console.log(typeof specialty);
 
     if (typeof specialty === "string") {
       const specialtyRaw = specialty?.trim();
@@ -386,7 +386,7 @@ router.get("/stats-by-speciality", async (req: Request, res: Response) => {
 
       match.specialty = formattedSpecialty;
     }
-    console.log(match);
+    // console.log(match);
 
     // if (practiceSetting) match.practiceSetting = practiceSetting;
 
@@ -499,7 +499,7 @@ router.get("/stats-by-speciality", async (req: Request, res: Response) => {
         },
       },
     ]);
-    console.log(stats, 'adssdaads');
+    // console.log(stats, 'adssdaads');
 
     res.status(200).json(stats);
   } catch (err) {
@@ -507,5 +507,110 @@ router.get("/stats-by-speciality", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Failed to generate specialty statistics" });
   }
 });
+
+router.get("/speciality-insights", async (req: Request, res: Response) => {
+  try {
+    const { specialty } = req.query;
+     const match: any = {};
+    // if (!speciality) return res.status(400).json({ error: "Speciality is required" });
+
+    if (typeof specialty === "string") {
+      const specialtyRaw = specialty?.trim();
+      const formattedSpecialty = specialtyRaw?.replace(
+        /([a-z])([A-Z])/g,
+        "$1 $2"
+      );
+
+      match.specialty = formattedSpecialty;
+    }
+
+    const results = await Salary.aggregate([
+      { $match: match },
+      {
+        $facet: {
+          overallStats: [
+            {
+              $group: {
+                _id: null,
+                totalSubmissions: { $sum: 1 },
+                avgYearSalary: {
+                  $avg: {
+                    $add: ["$base_salary", { $ifNull: ["$bonus", 0] }],
+                  },
+                },
+              },
+            },
+            {
+              $project: {
+                _id: 0,
+                totalSubmissions: 1,
+                avgYearSalary: { $round: ["$avgYearSalary", 0] },
+              },
+            },
+          ],
+          reportsByState: [
+            {
+              $group: {
+                _id: "$state",
+                totalSubmissions: { $sum: 1 },
+                avgYearSalary: {
+                  $avg: {
+                    $add: ["$base_salary", { $ifNull: ["$bonus", 0] }],
+                  },
+                },
+              },
+            },
+            {
+              $project: {
+                state: "$_id",
+                totalSubmissions: 1,
+                avgYearSalary: { $round: ["$avgYearSalary", 0] },
+                _id: 0,
+              },
+            },
+            { $sort: { totalSubmissions: -1 } },
+          ],
+          reportsByPractice: [
+            {
+              $group: {
+                _id: "$practiceSetting",
+                totalSubmissions: { $sum: 1 },
+                avgYearSalary: {
+                  $avg: {
+                    $add: ["$base_salary", { $ifNull: ["$bonus", 0] }],
+                  },
+                },
+              },
+            },
+            {
+              $project: {
+                practiceSetting: "$_id",
+                totalSubmissions: 1,
+                avgYearSalary: { $round: ["$avgYearSalary", 0] },
+                _id: 0,
+              },
+            },
+            { $sort: { totalSubmissions: -1 } },
+          ],
+        },
+      },
+    ]);
+
+    const overallStats = results[0]?.overallStats?.[0] || {
+      totalSubmissions: 0,
+      avgYearSalary: 0,
+    };
+
+    res.status(200).json({
+      ...overallStats,
+      reportsByState: results[0].reportsByState,
+      reportsByPractice: results[0].reportsByPractice,
+    });
+  } catch (err) {
+    console.error("Error in /speciality-insights:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 
 export default router;
