@@ -9,11 +9,11 @@ const salarySchema = new mongoose.Schema({
     required: true,
   },
   city: { type: String, required: true },
-  email: {
-    type: String,
-    required: true,
-    match: /.+\@.+\..+/, // basic email pattern
-  },
+  // email: {
+  //   type: String,
+  //   required: true,
+  //   match: /.+\@.+\..+/, // basic email pattern
+  // },
   hoursWorked: { type: Number, required: true },
   practiceSetting: { type: String, required: true },
   ptoWeeks: { type: Number, required: false },

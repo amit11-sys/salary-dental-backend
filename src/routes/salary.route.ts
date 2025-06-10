@@ -1,6 +1,6 @@
 import express, { Request, Response } from "express";
 import { Salary } from "../config/models/salary.model";
-
+import { Email } from "../config/models/email.model";
 const router = express.Router();
 
 // Define the expected query parameters with optional fields
@@ -29,8 +29,16 @@ interface AllSalaryQuery {
 // POST: Submit salary
 router.post("/submit-salary", async (req: Request, res: Response) => {
   try {
+    const { email } = req.body;
     const newSalary = new Salary(req.body);
     const savedSalary = await newSalary.save();
+    if (email) {
+      await Email.updateOne(
+        { email },
+        { $setOnInsert: { email } },
+        { upsert: true }
+      );
+    }
     res.status(201).json(savedSalary);
   } catch (err) {
     console.error("Error saving salary record:", err);
