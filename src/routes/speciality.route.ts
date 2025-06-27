@@ -8,7 +8,7 @@ router.get("/", async (req, res) => {
 
   try {
     const users = await Speciality.find({
-      speciality: { $regex: searchQuery }, // partial, case-insensitive match
+      speciality: { $regex: searchQuery, $options:"i" }, // partial, case-insensitive match
     }).limit(10); // Optional: limit results
     // console.log(users);
 
