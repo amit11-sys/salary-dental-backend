@@ -1,6 +1,7 @@
 import express, { Request, Response } from "express";
 import { Salary } from "../config/models/salary.model";
 import { Email } from "../config/models/email.model";
+import { PipelineStage } from "mongoose";
 const router = express.Router();
 
 // Define the expected query parameters with optional fields
@@ -30,7 +31,7 @@ function formatSpecialty(specialty: any) {
 
   return specialty
     .split("-")
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join("-");
 }
 // POST: Submit salary
@@ -76,110 +77,158 @@ router.get(
       const limitNumber = parseInt(limit, 10);
       const skip = (pageNumber - 1) * limitNumber;
 
-      const [salaries, total, groupedSummary, overallSummary] =
-        await Promise.all([
-          Salary.find(query).skip(skip).limit(limitNumber),
-          Salary.countDocuments(query),
+      const [
+        salaries,
+        total,
+        groupedSummary,
+        overallSummary,
+        avgHourlySummary,
+        totalParsedSummary,
+      ] = await Promise.all([
+        Salary.find(query).skip(skip).limit(limitNumber),
+        Salary.countDocuments(query),
 
-          // GROUPED SUMMARY: by practiceSetting
-          Salary.aggregate([
-            { $match: query },
-            {
-              $group: {
-                _id: "$practiceSetting",
-                avgBaseSalary: { $avg: "$base_salary" },
-                avgBonus: { $avg: "$bonus" },
-                avgTotalCompensation: {
-                  $avg: { $add: ["$base_salary", { $ifNull: ["$bonus", 0] }] },
-                },
-                avgWorkload: { $avg: "$hoursWorked" },
-                total: { $sum: 1 },
-                wouldChooseAgainCount: {
-                  $sum: {
-                    $cond: [{ $eq: ["$chooseSpecialty", "yes"] }, 1, 0],
-                  },
+        // GROUPED SUMMARY: by practiceSetting
+        Salary.aggregate([
+          { $match: query },
+          {
+            $group: {
+              _id: "$practiceSetting",
+              avgBaseSalary: { $avg: "$base_salary" },
+              avgBonus: { $avg: "$bonus" },
+              avgTotalCompensation: {
+                $avg: { $add: ["$base_salary", { $ifNull: ["$bonus", 0] }] },
+              },
+              avgWorkload: { $avg: "$hoursWorked" },
+              total: { $sum: 1 },
+              wouldChooseAgainCount: {
+                $sum: {
+                  $cond: [{ $eq: ["$chooseSpecialty", "yes"] }, 1, 0],
                 },
               },
             },
-            {
-              $project: {
-                practiceSetting: "$_id",
-                avgBaseSalary: { $round: ["$avgBaseSalary", 0] },
-                avgBonus: { $round: ["$avgBonus", 0] },
-                avgTotalCompensation: { $round: ["$avgTotalCompensation", 0] },
-                avgWorkload: { $round: ["$avgWorkload", 0] },
-                wouldChooseAgainPercent: {
+          },
+          {
+            $project: {
+              practiceSetting: "$_id",
+              avgBaseSalary: { $round: ["$avgBaseSalary", 0] },
+              avgBonus: { $round: ["$avgBonus", 0] },
+              avgTotalCompensation: { $round: ["$avgTotalCompensation", 0] },
+              avgWorkload: { $round: ["$avgWorkload", 0] },
+              wouldChooseAgainPercent: {
+                $cond: [
+                  { $eq: ["$total", 0] },
+                  0,
+                  {
+                    $round: [
+                      {
+                        $multiply: [
+                          { $divide: ["$wouldChooseAgainCount", "$total"] },
+                          100,
+                        ],
+                      },
+                      0,
+                    ],
+                  },
+                ],
+              },
+              submissionCount: "$total",
+              _id: 0,
+            },
+          },
+        ]),
+
+        // OVERALL SUMMARY: no grouping
+        Salary.aggregate([
+          { $match: query },
+          {
+            $group: {
+              _id: null,
+              avgBaseSalary: { $avg: "$base_salary" },
+              avgBonus: { $avg: "$bonus" },
+              avgTotalCompensation: {
+                $avg: { $add: ["$base_salary", { $ifNull: ["$bonus", 0] }] },
+              },
+              avgWorkload: { $avg: "$hoursWorked" },
+              total: { $sum: 1 },
+              wouldChooseAgainCount: {
+                $sum: {
+                  $cond: [{ $eq: ["$chooseSpecialty", "yes"] }, 1, 0],
+                },
+              },
+            },
+          },
+          {
+            $project: {
+              avgBaseSalary: { $round: ["$avgBaseSalary", 0] },
+              avgBonus: { $round: ["$avgBonus", 0] },
+              avgTotalCompensation: { $round: ["$avgTotalCompensation", 0] },
+              avgWorkload: { $round: ["$avgWorkload", 0] },
+              wouldChooseAgainPercent: {
+                $cond: [
+                  { $eq: ["$total", 0] },
+                  0,
+                  {
+                    $round: [
+                      {
+                        $multiply: [
+                          { $divide: ["$wouldChooseAgainCount", "$total"] },
+                          100,
+                        ],
+                      },
+                      0,
+                    ],
+                  },
+                ],
+              },
+              submissionCount: "$total",
+              _id: 0,
+            },
+          },
+        ]),
+        Salary.aggregate([
+          { $match: query },
+          {
+            $group: {
+              _id: null,
+              avgHourlyRate: {
+                $avg: {
                   $cond: [
-                    { $eq: ["$total", 0] },
-                    0,
                     {
-                      $round: [
-                        {
-                          $multiply: [
-                            { $divide: ["$wouldChooseAgainCount", "$total"] },
-                            100,
-                          ],
-                        },
-                        0,
+                      $and: [
+                        { $gt: ["$base_salary", 0] },
+                        { $gt: ["$hoursWorked", 0] },
                       ],
                     },
+                    { $divide: ["$base_salary", "$hoursWorked"] },
+                    null,
                   ],
                 },
-                submissionCount: "$total",
-                _id: 0,
               },
             },
-          ]),
+          },
+          {
+            $project: {
+              _id: 0,
+              avgHourlyRate: { $round: ["$avgHourlyRate", 2] },
+            },
+          },
+        ]),
+        Salary.aggregate([
+          {
+            $match: {
+              ...query,
+              base_salary: { $gt: 0 },
+              hoursWorked: { $gt: 0 },
+            },
+          },
+          {
+            $count: "totalParsed",
+          },
+        ]),
 
-          // OVERALL SUMMARY: no grouping
-          Salary.aggregate([
-            { $match: query },
-            {
-              $group: {
-                _id: null,
-                avgBaseSalary: { $avg: "$base_salary" },
-                avgBonus: { $avg: "$bonus" },
-                avgTotalCompensation: {
-                  $avg: { $add: ["$base_salary", { $ifNull: ["$bonus", 0] }] },
-                },
-                avgWorkload: { $avg: "$hoursWorked" },
-                total: { $sum: 1 },
-                wouldChooseAgainCount: {
-                  $sum: {
-                    $cond: [{ $eq: ["$chooseSpecialty", "yes"] }, 1, 0],
-                  },
-                },
-              },
-            },
-            {
-              $project: {
-                avgBaseSalary: { $round: ["$avgBaseSalary", 0] },
-                avgBonus: { $round: ["$avgBonus", 0] },
-                avgTotalCompensation: { $round: ["$avgTotalCompensation", 0] },
-                avgWorkload: { $round: ["$avgWorkload", 0] },
-                wouldChooseAgainPercent: {
-                  $cond: [
-                    { $eq: ["$total", 0] },
-                    0,
-                    {
-                      $round: [
-                        {
-                          $multiply: [
-                            { $divide: ["$wouldChooseAgainCount", "$total"] },
-                            100,
-                          ],
-                        },
-                        0,
-                      ],
-                    },
-                  ],
-                },
-                submissionCount: "$total",
-                _id: 0,
-              },
-            },
-          ]),
-        ]);
+        // SALARY PERCENTILES
+      ]);
       const topSpecialties = await Salary.aggregate([
         {
           $match: {
@@ -206,6 +255,47 @@ router.get(
           },
         },
       ]);
+      type CustomGroupStage = {
+        $group: {
+          _id: any;
+          percentiles: {
+            $percentile: {
+              input: string;
+              method: "approximate" | "continuous";
+              p: number[];
+            };
+          };
+        };
+      };
+      const percentilePipeline: PipelineStage[] = [
+        { $match: query },
+        {
+          // 👇 assert type using our override
+          $group: {
+            _id: null,
+            percentiles: {
+              $percentile: {
+                input: "$base_salary",
+                method: "approximate",
+                p: [0.1, 0.25, 0.5, 0.75, 0.9],
+              },
+            },
+          },
+        } as unknown as CustomGroupStage, // 👈 assert type
+        {
+          $project: {
+            _id: 0,
+            p10: { $round: [{ $arrayElemAt: ["$percentiles", 0] }, 0] },
+            p25: { $round: [{ $arrayElemAt: ["$percentiles", 1] }, 0] },
+            p50: { $round: [{ $arrayElemAt: ["$percentiles", 2] }, 0] },
+            p75: { $round: [{ $arrayElemAt: ["$percentiles", 3] }, 0] },
+            p90: { $round: [{ $arrayElemAt: ["$percentiles", 4] }, 0] },
+          },
+        },
+      ];
+
+      const percentile = await Salary.aggregate(percentilePipeline);
+
       res.status(200).json({
         total,
         page: pageNumber,
@@ -215,6 +305,9 @@ router.get(
         summary: groupedSummary,
         overallSummary: overallSummary[0] || null,
         topSatisfactionSpecialties: topSpecialties,
+        percentile: percentile[0],
+        avgHourlyRate: avgHourlySummary[0]?.avgHourlyRate || null,
+        totalParsed: totalParsedSummary[0]?.totalParsed || 0,
       });
     } catch (err) {
       console.error("Error fetching salary records:", err);
@@ -390,7 +483,7 @@ router.get("/stats-by-speciality", async (req: Request, res: Response) => {
   try {
     const { specialty } = req.query;
     const match: any = {};
-      match.specialty = formatSpecialty(specialty);
+    match.specialty = formatSpecialty(specialty);
     // console.log(match);
 
     // if (practiceSetting) match.practiceSetting = practiceSetting;
@@ -516,9 +609,9 @@ router.get("/stats-by-speciality", async (req: Request, res: Response) => {
 router.get("/speciality-insights", async (req: Request, res: Response) => {
   try {
     const { specialty } = req.query;
-     const match: any = {};
+    const match: any = {};
 
-      match.specialty = formatSpecialty(specialty);
+    match.specialty = formatSpecialty(specialty);
 
     const results = await Salary.aggregate([
       { $match: match },
@@ -607,6 +700,5 @@ router.get("/speciality-insights", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
-
 
 export default router;
