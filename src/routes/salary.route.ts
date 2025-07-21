@@ -32,7 +32,7 @@ function formatSpecialty(specialty: any) {
   return specialty
     .split("-")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join("-");
+    .join(" ");
 }
 // POST: Submit salary
 router.post("/submit-salary", async (req: Request, res: Response) => {
@@ -700,5 +700,112 @@ router.get("/speciality-insights", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
+// router.get("/compensation-analysis", async (req: Request, res: Response) => {
+router.get("/compensation-analysis", async (req: Request, res: Response) => {
+  // console.log(req.query, 'request query');
+  
+  try {
+    const { specialty, state, practice, compensation } = req.query;
+
+    // if (!specialty || !compensation) {
+    //   return res.status(400).json({ error: "Specialty and compensation are required." });
+    // }
+
+    const query: Record<string, any> = { specialty };
+    if (state) query.state = state;
+    if (practice) query.practiceSetting = practice;
+
+    const parsedComp = parseFloat(compensation as string);
+
+    const [percentilesResult, avgResult, parsedCountResult] = await Promise.all([
+      Salary.aggregate([
+        { $match: query },
+        {
+          $group: {
+            _id: null,
+            percentiles: {
+              //@ts-ignore
+              $percentile: {
+                input: "$base_salary",
+                method: "approximate",
+                p: [0.1, 0.25, 0.5, 0.75, 0.9],
+              },
+            },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            p10: { $round: [{ $arrayElemAt: ["$percentiles", 0] }, 0] },
+            p25: { $round: [{ $arrayElemAt: ["$percentiles", 1] }, 0] },
+            p50: { $round: [{ $arrayElemAt: ["$percentiles", 2] }, 0] },
+            p75: { $round: [{ $arrayElemAt: ["$percentiles", 3] }, 0] },
+            p90: { $round: [{ $arrayElemAt: ["$percentiles", 4] }, 0] },
+          },
+        },
+      ]),
+      Salary.aggregate([
+        { $match: query },
+        {
+          $group: {
+            _id: null,
+            avgSalary: { $avg: "$base_salary" },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            avgSalary: { $round: ["$avgSalary", 0] },
+          },
+        },
+      ]),
+      Salary.aggregate([
+        {
+          $match: {
+            ...query,
+            base_salary: { $gt: 0 },
+          },
+        },
+        { $count: "parsedCount" },
+      ]),
+    ]);
+
+    const percentiles = percentilesResult[0] || {};
+    const avgSalary = avgResult[0]?.avgSalary || 0;
+    const totalParsed = parsedCountResult[0]?.parsedCount || 0;
+
+    const { p10 = 0, p25 = 0, p50 = 0, p75 = 0, p90 = 0 } = percentiles;
+
+    let percentileLabel = "Top";
+    if (parsedComp <= p10) percentileLabel = "Bottom";
+    else if (parsedComp <= p25) percentileLabel = "10th–25th";
+    else if (parsedComp <= p50) percentileLabel = "25th–50th";
+    else if (parsedComp <= p75) percentileLabel = "50th–75th";
+    else if (parsedComp <= p90) percentileLabel = "75th–90th";
+
+    let grade = "C";
+    const ratio = avgSalary ? parsedComp / avgSalary : 0;
+
+    if (ratio >= 1.2) grade = "A+";
+    else if (ratio >= 1.0) grade = "A";
+    else if (ratio >= 0.9) grade = "B";
+    else if (ratio >= 0.75) grade = "C";
+    else grade = "D";
+
+    res.status(200).json({
+      yourCompensation: parsedComp,
+      marketAverage: avgSalary,
+      percentileLabel,
+      grade,
+      totalParsed,
+      percentiles,
+    });
+  } catch (err) {
+    console.error("Error in compensation analysis:", err);
+    res.status(500).json({ error: "Failed to analyze compensation" });
+  }
+});
+
 
 export default router;
