@@ -6,7 +6,7 @@ const router = express.Router();
 
 // Define the expected query parameters with optional fields
 interface SalarySearchQuery {
-  speciality?: string;
+  specialty?: string;
   subspeciality?: string;
   state?: string;
   practice?: string;
@@ -59,17 +59,17 @@ router.get(
   async (req: Request<{}, {}, {}, SalarySearchQuery>, res: Response) => {
     try {
       const {
-        speciality,
+        specialty,
         subspeciality,
         state,
         practice,
         page = "1",
         limit = "10",
       } = req.query;
-
+      
       const query: Record<string, any> = {};
-      if (speciality) query.specialty = speciality;
-      if (subspeciality) query.sub_specialty = subspeciality;
+      if (specialty) query.specialty = specialty;
+      // if (subspeciality) query.sub_specialty = subspeciality;
       if (state) query.state = state;
       if (practice) query.practiceSetting = practice;
 
