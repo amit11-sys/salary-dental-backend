@@ -31,9 +31,14 @@ function formatSpecialty(specialty: any) {
 
   return specialty
     .split("-")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .map((word) => {
+      return word.toLowerCase() === "and"
+        ? "and"
+        : word.charAt(0).toUpperCase() + word.slice(1);
+    })
     .join(" ");
 }
+
 // POST: Submit salary
 router.post("/submit-salary", async (req: Request, res: Response) => {
   try {
@@ -186,34 +191,32 @@ router.get(
             },
           },
         ]),
-        Salary.aggregate([
-          { $match: query },
-          {
-            $group: {
-              _id: null,
-              avgHourlyRate: {
-                $avg: {
-                  $cond: [
-                    {
-                      $and: [
-                        { $gt: ["$base_salary", 0] },
-                        { $gt: ["$hoursWorked", 0] },
-                      ],
-                    },
-                    { $divide: ["$base_salary", "$hoursWorked"] },
-                    null,
-                  ],
-                },
-              },
-            },
-          },
-          {
-            $project: {
-              _id: 0,
-              avgHourlyRate: { $round: ["$avgHourlyRate", 2] },
-            },
-          },
-        ]),
+       Salary.aggregate([
+  {
+    $match: {
+      ...query,
+      base_salary: { $gt: 0 },
+      hoursWorked: { $gt: 0 },
+    },
+  },
+  {
+    $group: {
+      _id: null,
+      avgHourlyRate: {
+        $avg: {
+          $divide: ["$base_salary", "$hoursWorked"],
+        },
+      },
+    },
+  },
+  {
+    $project: {
+      _id: 0,
+      avgHourlyRate: { $round: ["$avgHourlyRate", 2] },
+    },
+  },
+]),
+
         Salary.aggregate([
           {
             $match: {
@@ -481,10 +484,11 @@ router.get("/specialty-stats", async (req: Request, res: Response) => {
 
 router.get("/stats-by-speciality", async (req: Request, res: Response) => {
   try {
-    const { specialty } = req.query;
+    const { specialty, state } = req.query;
     const match: any = {};
     match.specialty = formatSpecialty(specialty);
-    // console.log(match);
+    if (state) match.state = state;
+    console.log(match);
 
     // if (practiceSetting) match.practiceSetting = practiceSetting;
 
@@ -505,7 +509,7 @@ router.get("/stats-by-speciality", async (req: Request, res: Response) => {
               $cond: [
                 {
                   $regexMatch: {
-                    input: "$satisfactionLevel",
+                    input: { $toString: "$satisfactionLevel" },
                     regex: /^[1-5]$/,
                   },
                 },
@@ -608,11 +612,13 @@ router.get("/stats-by-speciality", async (req: Request, res: Response) => {
 
 router.get("/speciality-insights", async (req: Request, res: Response) => {
   try {
-    const { specialty } = req.query;
+    const { specialty, state } = req.query;
     const match: any = {};
 
     match.specialty = formatSpecialty(specialty);
-
+    if (state) match.state = state;
+    console.log(specialty, match);
+    
     const results = await Salary.aggregate([
       { $match: match },
       {
