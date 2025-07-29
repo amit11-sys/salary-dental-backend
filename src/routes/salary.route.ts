@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import { Salary } from "../config/models/salary.model";
 import { Email } from "../config/models/email.model";
 import { PipelineStage } from "mongoose";
+import { sendSurveyEmail } from "../services/mailer";
 const router = express.Router();
 
 // Define the expected query parameters with optional fields
@@ -39,6 +40,7 @@ router.post("/submit-salary", async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
     const newSalary = new Salary(req.body);
+      const result = await sendSurveyEmail(newSalary);
     const savedSalary = await newSalary.save();
     if (email) {
       await Email.updateOne(
