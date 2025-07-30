@@ -30,11 +30,21 @@ interface AllSalaryQuery {
 function formatSpecialty(specialty: any) {
   if (typeof specialty !== "string") return specialty;
 
+  const stopWords = new Set(["and", "or", "of", "in", "on", "the", "a", "an"]);
+
   return specialty
     .split("-")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .map((word, index) => {
+      const lower = word.toLowerCase();
+      // Always capitalize the first word, even if it's a stop word
+      if (index === 0 || !stopWords.has(lower)) {
+        return lower.charAt(0).toUpperCase() + lower.slice(1);
+      }
+      return lower;
+    })
     .join(" ");
 }
+
 // POST: Submit salary
 router.post("/submit-salary", async (req: Request, res: Response) => {
   try {
@@ -486,7 +496,7 @@ router.get("/stats-by-speciality", async (req: Request, res: Response) => {
     const { specialty } = req.query;
     const match: any = {};
     match.specialty = formatSpecialty(specialty);
-    // console.log(match);
+    console.log(match);
 
     // if (practiceSetting) match.practiceSetting = practiceSetting;
 
@@ -808,6 +818,21 @@ router.get("/compensation-analysis", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Failed to analyze compensation" });
   }
 });
+
+router.get("/salary-count", async (req: Request, res: Response) => {
+
+  try {
+    const count = await Salary.countDocuments();
+    res.status(200).json({ count });
+  } catch (err) {
+    console.error("Error fetching salary count:", err);
+    res.status(500).json({ error: "Failed to retrieve salary count" });
+  }
+
+
+
+
+})
 
 
 export default router;
